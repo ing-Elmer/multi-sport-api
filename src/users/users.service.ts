@@ -1,24 +1,38 @@
-import { BadRequestException, Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+} from '@nestjs/common';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import * as sql from 'mssql';
-@Injectable()
+import { MailService } from 'src/mail/mail.service';
 
+@Injectable()
 export class UsersService {
   private readonly logger = new Logger('usersService');
-  
+
+  constructor(private readonly mailService: MailService) {}
+
   async create(createUserDto: CreateUserDto) {
     const config = {
-      user: 'Elmer',
-      password: 'admin',
-      server: 'DESKTOP-TAIIPHE\\SQLEXPRESS',
-      database: 'bdMultiSportPro',
+      user: process.env.USER_BD,
+      password: process.env.PASSWORD_BD,
+      server: process.env.HOST_BD,
+      database: process.env.DATABASE_BD,
       options: {
-        trustServerCertificate: true
-      }
+        trustServerCertificate: true,
+      },
     };
+
+    let pool;
+    let transaction;
     try {
-      const pool = await sql.connect(config);
+      pool = await sql.connect(config);
+      transaction = new sql.Transaction(pool);
+      await transaction.begin();
       const request = pool.request();
       request.input('id_card', sql.VarChar(20), createUserDto.id_card);
       request.input('first_name', sql.VarChar(100), createUserDto.first_name);
@@ -27,12 +41,16 @@ export class UsersService {
       request.input('role', sql.VarChar(20), createUserDto.role || 'user');
       request.input('password', sql.VarChar(150), createUserDto.password);
       request.input('otp', sql.VarChar(200), createUserDto.otp || null);
-      request.input('terms_and_conditions', sql.Bit, createUserDto.terms_and_conditions || 0);
+      request.input(
+        'terms_and_conditions',
+        sql.Bit,
+        createUserDto.terms_and_conditions || 0,
+      );
 
       // Parámetros de salida
       request.output('IDRETURN', sql.Int);
       request.output('ERRORID', sql.Int);
-      request.output('ERRORDESCRIPCION', sql.NVarChar(sql.MAX)); 
+      request.output('ERRORDESCRIPCION', sql.NVarChar(sql.MAX));
 
       const result = await request.execute('SP_INSERT_USER');
 
@@ -40,12 +58,21 @@ export class UsersService {
         throw new BadRequestException(result.output.ERRORDESCRIPCION);
       }
 
+      await this.mailService.sendEmail(createUserDto.email);
+
+      await transaction.commit();
       return 'Usuario creado correctamente';
-    }catch (error) {
+    } catch (error) {
+      if (transaction) {
+        await transaction.rollback();
+      }
       console.error('Error al ejecutar SP_INSERT_USER:', error);
-      this.handleDBException(error) ;
+      throw error;
+    } finally {
+      if (pool) {
+        pool.close();
+      }
     }
-    
   }
 
   findAll() {
@@ -65,18 +92,15 @@ export class UsersService {
   }
 
   private handleDBException(error: any) {
-    if (error.code === '23505') 
-      throw new BadRequestException(error.detail);
-    
-    if (error.message){
+    if (error.code === '23505') throw new BadRequestException(error.detail);
+
+    if (error.message) {
       this.logger.error(error.message);
 
       throw new BadRequestException(error.message);
-    }else{
+    } else {
       this.logger.error(error);
       throw new InternalServerErrorException('Ocurrió un error inesperado');
     }
-    
-
   }
 }

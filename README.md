@@ -34,6 +34,20 @@
   ```bash
   $ yarn add mssql
   ```
+* Instalar mailer para enviar correos
+  ```bash
+  $ yarn add @nestjs-modules/mailer nodemailer handlebars
+  ```
+
+  * Instalar los tipos para enviar correos
+  ```bash
+  $ yarn add --save-dev @types/nodemailer
+  ```
+  * Instalar las colas de trabajo
+  ```bash
+  $ yarn add --save @nestjs/bull bull
+  ```
+  
 
 
 
